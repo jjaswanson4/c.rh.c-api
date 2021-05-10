@@ -1,0 +1,66 @@
+---
+
+- name: grab host's machine id
+  ansible.builtin.slurp:
+    src: /etc/redhat-access-insights/machine-id
+  register: machine_id
+
+- name: asign a host to a compliance policy
+  block:
+    - name: get all compliance profiles
+      ansible.builtin.uri:
+        url: https://cloud.redhat.com/api/compliance/profiles
+        force_basic_auth: true
+        user: "{{ lookup('env', 'CRHC_USERNAME') }}"
+        password: "{{ lookup('env', 'CRHC_PASSWORD') }}"
+        method: GET
+      register: compliance_profiles
+
+    - name: search for host's insights id
+      ansible.builtin.uri:
+        url: "https://cloud.redhat.com/api/inventory/v1/hosts?insights_id={{ machine_id['content'] | b64decode }}"
+        force_basic_auth: true
+        user: "{{ lookup('env', 'CRHC_USERNAME') }}"
+        password: "{{ lookup('env', 'CRHC_PASSWORD') }}"
+        method: GET
+      register: insights_host_info
+
+    - name: set insights ID fact
+      ansible.builtin.set_fact:
+        insights_id: "{{ insights_host_info.json | ansible.builtin.json_query('results[*].id') | join() }}"
+
+    - name: get profile id
+      ansible.builtin.set_fact:
+        profile_id: "{{ profile.id }}"
+      when:
+        - profile.attributes.name == profile_name
+        - profile.attributes.os_version == ansible_distribution_major_version | string
+      loop_control:
+        loop_var: profile
+      loop: "{{ compliance_profiles.json.data }}"
+      no_log: true
+
+    - name: add up existing hosts and new host
+      ansible.builtin.set_fact:
+        profile_hosts: "{{ profile.relationships.hosts.data + [{'id': insights_id, 'type': 'host'}]  }}"
+      when:
+        profile_id == profile.id
+      loop_control:
+        loop_var: profile
+      loop: "{{ compliance_profiles.json.data }}"
+      no_log: true
+
+    - name: update profile with new host
+      ansible.builtin.uri:
+        url: "https://cloud.redhat.com/api/compliance/profiles/{{ profile_id }}"
+        force_basic_auth: true
+        user: "{{ lookup('env', 'CRHC_USERNAME') }}"
+        password: "{{ lookup('env', 'CRHC_PASSWORD') }}"
+        method: PATCH
+        body_format: json
+        body:
+          data:
+            relationships:
+              hosts:
+                data: "{{ profile_hosts }}"
+  delegate_to: localhost

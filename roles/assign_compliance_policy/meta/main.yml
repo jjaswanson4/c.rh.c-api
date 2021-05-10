@@ -1,0 +1,10 @@
+galaxy_info:
+  author: Josh Swanson
+  description: Assigns a host to an scap policy via the c.rh.c API
+  license: GPL-2.0
+  min_ansible_version: 2.9
+  galaxy_tags:
+    - insights
+    - openscap
+
+dependencies: []
